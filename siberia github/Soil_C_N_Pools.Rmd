@@ -1,0 +1,744 @@
+---
+title: "R Notebook"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+```{r}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(ggplot2)
+library(lme4)
+library(lmerTest)
+library(MuMIn)
+library(nlme)
+library(effects)
+library(influence.ME)
+library(car)
+library(emmeans)
+```
+
+```{r}
+cn = read.csv("soil_MS_sub.csv")
+
+cn$treatment = factor(cn$treatment, levels = c("nothing", "burn", "sub"), labels= c("Unburned", "Burned", "Subsided"))
+
+cn$treatment = as.factor(cn$treatment)
+cn$depth = as.numeric(cn$depth)
+```
+
+```{r}
+ggplot(cn, aes(y = c.stock, x = treatment)) +
+geom_boxplot(size = 1) +
+theme_bw(base_size = 17)
+ggplot(cn, aes(y = n.stock, x = treatment)) +
+geom_boxplot(size = 1) +
+theme_bw(base_size = 17)
+```
+
+deep cores from surface no subsidence taken into account
+```{r}
+cp.m <-lmer(c.stock ~ depth * treatment + (1| label), na.action=na.exclude, data = cn)
+cp.m1 <-lmer(c.stock ~ depth + treatment + (1| label), na.action=na.exclude, data = cn)
+anova(cp.m, cp.m1)
+cp.m2 <-lmer(c.stock ~ depth + (1| label), na.action=na.exclude, data = cn)
+anova(cp.m2, cp.m1)
+cp.m3 <-lmer(c.stock ~ 1 + (1| label), na.action=na.exclude, data = cn)
+anova(cp.m2, cp.m3)
+
+anova(cp.m2)
+plot(cp.m2)
+```
+depth matters
+have to GLM
+
+```{r}
+plot(allEffects(cp.m2))
+r <- Effect(c("depth"), cp.m2, xlevels=500)
+r=as.data.frame(r)
+
+ggplot() +
+geom_point(data = cn, aes(x = c.stock, y = depth)) +
+  theme_bw(base_size = 17)+
+theme(aspect.ratio=1, panel.grid.minor = element_blank()) +  
+ylab("Depth (cm)") +
+xlab(expression("C stocks (g "*paste(m^{2}* ")"))) +
+scale_y_reverse() +
+  scale_color_manual(values=c(c("#49997c", "#ae3918", "#d19c2f" ))) +
+geom_line(data=r, aes(y = depth, x = fit),linetype="solid", size=1)+
+geom_ribbon(data=r, aes(x = fit, y = depth, xmax = upper, xmin=lower), alpha=0.2) 
+```
+
+nitrogen no subsidence
+```{r}
+n.m <-lmer(n.stock ~ depth * treatment + (1| label), na.action=na.exclude, data = cn)
+n.m1 <-lmer(n.stock ~ depth + treatment + (1| label), na.action=na.exclude, data = cn)
+anova(n.m, n.m1)
+anova(n.m)
+n.m2 <-lmer(n.stock ~ treatment + (1| label), na.action=na.exclude, data = cn)
+anova(n.m2, n.m1)
+n.m2 <-lmer(n.stock ~ 1 + (1| label), na.action=na.exclude, data = cn)
+
+```
+nothing significant
+
+
+cummulative sum work from ash equivalent
+```{r}
+cn1 = cn %>%
+  na.omit() %>%
+  group_by(treatment, plot) %>% 
+  mutate(c.stock.cum = cumsum(c.stock)) %>%
+  mutate(n.stock.cum = cumsum(n.stock))
+
+cn2 <- cn1[c(7, 15, 22, 30, 41, 54, 67), ]
+```
+
+c stock with subsidence
+```{r}
+tot.m <-lmer(c.stock.cum ~ treatment + (1| plot), na.action=na.exclude, data = cn2)
+tot.m1 <-lmer(c.stock.cum ~ 1 + (1| plot), na.action=na.exclude, data = cn2)
+anova(tot.m, tot.m1)
+plot(tot.m)
+
+ggplot(cn2, aes(y = c.stock.cum, x = treatment)) +
+geom_boxplot(size = 1) +
+theme_bw(base_size = 17)
+```
+C stock not significant
+
+N stock with subsidence
+```{r}
+ton.m <-lm(n.stock.cum ~ treatment, na.action=na.exclude, data = cn2)
+ton.m1 <-lm(n.stock.cum ~ 1, na.action=na.exclude, data = cn2)
+anova(ton.m, ton.m1)
+Anova(ton.m, ton.m1)
+Anova(ton.m)
+
+#plot(ton.m) this freezes R
+
+ggplot(cn2, aes(y = n.stock.cum, x = treatment)) +
+geom_boxplot(size = 1) +
+theme_bw(base_size = 17)
+```
+
+```{r}
+emmeans(ton.m, "treatment")
+emmeans(ton.m, pairwise ~ treatment)
+pair =  emmeans(ton.m, "treatment")
+plot(pair, comparisons = TRUE)
+```
+ISOTOPES
+neither isotope significant
+
+d15N
+```{r}
+dn.m <-lmer(d15N ~ depth * treatment + (1| label), na.action=na.exclude, data = cn)
+dn.m1 <-lmer(d15N ~ depth + treatment + (1| label), na.action=na.exclude, data = cn)
+anova(dn.m, dn.m1)
+dn.m2 <-lmer(d15N ~ depth + (1| label), na.action=na.exclude, data = cn)
+anova(dn.m2, dn.m1)
+anova(dn.m1)
+plot(dn.m1)
+```
+dn.m1 depth and treatment matter separately
+residuals look awful so look at GLMM
+
+d15N GLMM
+```{r}
+d1 <- glmer(d15N ~ treatment * depth + (1| label),  family = Gamma(link="log"), data = cn)
+d2 <- glmer(d15N ~ treatment + depth + (1| label),  family = Gamma(link="log"), data = cn)
+anova(d1, d2)
+Anova(d2)
+d3 <- glmer(d15N ~ depth + (1| label),  family = Gamma(link="log"), data = cn)
+anova(d3, d2)
+d4 <- glmer(d15N ~ 1 + (1| label),  family = Gamma(link="log"), data = cn)
+anova(d3, d4)
+```
+Nothing significant
+
+```{r}
+plot(allEffects(dc.m1))
+eff.dc <- Effect(c("depth", "treatment"), dc.m1, xlevels=500)
+eff.dc=as.data.frame(eff.dc)
+
+ggplot() +
+geom_point(data = din, aes(x = DIN.area, y = depth1, group = treatment, color = treatment)) +
+  theme_bw(base_size = 17)+
+theme(aspect.ratio=1, panel.grid.minor = element_blank(), legend.position="none") +  
+ylab("Depth (cm)") +
+xlab(expression("DIN (mg "*paste(m^{2}* ")"))) +
+scale_y_reverse() +
+  scale_color_manual(values=c(c("#49997c", "#ae3918", "#d19c2f" ))) +
+geom_line(data=r, aes(y = depth1, x = exp(fit), group = treatment),linetype="solid", size=1)+
+geom_ribbon(data=r, aes(y = depth1, xmax = exp(upper), xmin=exp(lower), group = treatment), alpha=0.2) +
+  facet_wrap(~treatment)
+```
+
+d13C
+```{r}
+dc.m <-lmer(d13C ~ depth * treatment + (1| label), na.action=na.exclude, data = cn)
+dc.m1 <-lmer(d13C ~ depth + treatment + (1| label), na.action=na.exclude, data = cn)
+anova(dc.m, dc.m1)
+dc.m2 <-lmer(d13C ~ depth + (1| label), na.action=na.exclude, data = cn)
+anova(dc.m2, dc.m1)
+dc.m3 <-lmer(d13C ~ 1 + (1| label), na.action=na.exclude, data = cn)
+anova(dc.m2, dc.m3)
+```
+Nothing matters
+
+
+Check with shallow soils
+```{r}
+shal = read.csv("soil_MS_shal.csv")
+
+shal$treatment = factor(shal$treatment, levels = c("nothing", "burn", "sub"), labels= c("Unburned", "Burned", "Subsided"))
+
+shal$treatment = as.factor(shal$treatment)
+shal$depth = as.numeric(shal$depth)
+```
+
+```{r}
+ggplot(shal, aes(y = c.stock, x = treatment)) +
+geom_boxplot(size = 2) +
+theme_bw(base_size = 17)
+ggplot(shal, aes(y = n.stock, x = treatment)) +
+geom_boxplot(size = 2) +
+theme_bw(base_size = 17)
+```
+
+shallow wihtou subsidence
+```{r}
+scm <-lmer(c.stock ~ depth * treatment + (1| site/plot/core), na.action=na.exclude, data = shal)
+scm1 <-lmer(c.stock ~ depth + treatment + (1| site/plot/core), na.action=na.exclude, data = shal)
+anova(scm, scm1)
+anova(scm1)
+scm2 <-lmer(c.stock ~ depth  + (1| site/plot/core), na.action=na.exclude, data = shal)
+anova(scm2, scm1)
+scm3 <-lmer(c.stock ~ 1  + (1| site/plot/core), na.action=na.exclude, data = shal)
+anova(scm2, scm3)
+plot(scm3)
+```
+nothing matters
+
+N stock without subsidence
+```{r}
+ns <-lmer(n.stock ~ depth * treatment + (1| site/plot/core), na.action=na.exclude, data = shal)
+ns1 <-lmer(n.stock ~ depth + treatment + (1| site/plot/core), na.action=na.exclude, data = shal)
+anova(ns, ns1)
+anova(ns1)
+ns2 <-lmer(n.stock ~ depth + (1| site/plot/core), na.action=na.exclude, data = shal)
+anova(ns2, ns1)
+ns3 <-lmer(n.stock ~ 1 + (1| site/plot/core), na.action=na.exclude, data = shal)
+anova(ns2, ns3)
+```
+nothing matters
+
+
+cummulative sum work from ash equivalent
+```{r}
+sh.sub = read.csv("soil_MS_shal_sub.csv")
+
+sh.sub$treatment = factor(sh.sub$treatment, levels = c("nothing", "burn", "sub"), labels= c("Unburned", "Burned", "Subsided"))
+
+sh.sub$treatment = as.factor(sh.sub$treatment)
+sh.sub$depth = as.numeric(sh.sub$depth)
+
+sub1 = sh.sub %>%
+  na.omit() %>%
+  group_by(treatment, plot, core) %>% 
+  mutate(c.stock.cum = cumsum(c.stock)) %>%
+  mutate(n.stock.cum = cumsum(n.stock))
+
+write.csv(sub1, file = "shal_sub_cum.csv")
+```
+
+cumm without top 5 cm in burned areas
+```{r}
+no.top = read.csv("soil_MS_shal_sub_notop.csv")
+
+no.top$treatment = factor(no.top$treatment, levels = c("nothing", "burn", "sub"), labels= c("Unburned", "Burned", "Subsided"))
+
+no.top$treatment = as.factor(no.top$treatment)
+no.top$depth = as.numeric(no.top$depth)
+
+no.top1 = no.top %>%
+  na.omit() %>%
+  group_by(treatment, plot, core) %>% 
+  mutate(c.stock.cum = cumsum(c.stock)) %>%
+  mutate(n.stock.cum = cumsum(n.stock))
+
+write.csv(no.top1, file = "shal_sub_cum_notop.csv")
+```
+
+----------------------------------------
+----------------------------------------
+used in paper
+subsidence and no regrowth
+no.top2
+```{r}
+no.top2 = read.csv("shal_sub_cum_notop_back.csv")
+no.top2$treatment = factor(no.top2$treatment, levels = c("Unburned", "Burned", "Subsidence"), labels= c("Unburned", "Burned", "Subsided"))
+
+cc.m <-lmer(c.stock.cum ~ treatment + (1| site/plot), na.action=na.exclude, data = no.top2)
+cc.m1 <-lmer(c.stock.cum ~ 1 + (1| site/plot), na.action=na.exclude, data = no.top2)
+anova(cc.m, cc.m1)
+plot(cc.m)
+
+r.squaredGLMM(cc.m)
+summary(cc.m)
+Anova(cc.m)
+```
+
+outliers
+```{r}
+cc.m.lm <-lm(c.stock.cum ~ treatment, na.action=na.exclude, data = no.top2)
+plot(cc.m.lm)
+```
+
+```{r}
+emmeans(cc.m, "treatment")
+emmeans(cc.m, pairwise ~ treatment)
+pair =  emmeans(cc.m, "treatment")
+plot(pair, comparisons = TRUE)
+```
+
+```{r}
+ggplot(no.top2, aes(y = c.stock.cum, x = treatment)) +
+geom_boxplot(size = 1) +
+theme_bw(base_size = 17)
+
+plot(allEffects(cc.m))
+e.top <- Effect(c("treatment"), cc.m, xlevels=500)
+e.top=as.data.frame(e.top)
+
+#home made box plot
+ggplot(e.top, aes(x=treatment, y=fit, color = treatment, fill = treatment)) + 
+  geom_point(size = 3) + 
+  geom_errorbar(aes(ymin=fit-se, ymax=fit+se), size = 1, width=0.25) + 
+ geom_jitter(data=no.top2, aes(x = treatment, y= c.stock.cum, fill = treatment, color = treatment), alpha = 0.3, width = 0.1) +
+  theme_bw(base_size = 17)+
+  theme(aspect.ratio=1, panel.grid.minor = element_blank(), legend.position="none") +
+  xlab("Disturbance catagory") +
+  ylab(expression("Carbon pools (g "*paste(m^{2}, ")"))) +
+  scale_color_manual(values=c(c("#49997c", "#ae3918", "#d19c2f" )))
+```
+
+cummulative C stock with subsidence
+```{r}
+sub2 = read.csv("shal_sub_cum_back.csv")
+sub2$treatment = factor(sub2$treatment, levels = c("Unburned", "Burned", "Subsidence"), labels= c("Unburned", "Burned", "Subsided"))
+
+ccc <-lmer(c.stock.cum ~ treatment + (1| site/plot), na.action=na.exclude, data = sub2)
+ccc1 <-lmer(c.stock.cum ~ 1 + (1| site/plot), na.action=na.exclude, data = sub2)
+anova(ccc, ccc1)
+plot(ccc)
+
+r.squaredGLMM(ccc)
+```
+treatment matters
+
+```{r}
+emmeans(ccc, "treatment")
+emmeans(ccc, pairwise ~ treatment)
+pair =  emmeans(ccc, "treatment")
+plot(pair, comparisons = TRUE)
+```
+
+plot model with raw jitter
+```{r}
+ggplot(sub2, aes(y = c.stock.cum, x = treatment)) +
+geom_boxplot(size = 1) +
+theme_bw(base_size = 17)
+
+plot(allEffects(ccc))
+ef.cs <- Effect(c("treatment"), ccc, xlevels=500)
+ef.cs=as.data.frame(ef.cs)
+
+#home made box plot
+ggplot(ef.cs, aes(x=treatment, y=fit, color = treatment, fill = treatment)) + 
+  geom_point(size = 3) + 
+  geom_errorbar(aes(ymin=fit-se, ymax=fit+se), size = 1, width=0.25) + 
+ geom_jitter(data=sub2, aes(x = treatment, y= c.stock.cum, fill = treatment, color = treatment), alpha = 0.3, width = 0.1) +
+  theme_bw(base_size = 17)+
+  theme(aspect.ratio=1, panel.grid.minor = element_blank(), legend.position="none") +
+  xlab("Treatment") +
+  ylab(expression("Carbon stocks (g "*paste(m^{2}, ")"))) +
+  scale_color_manual(values=c(c("#49997c", "#ae3918", "#d19c2f" )))
+```
+
+cummulative N pools
+```{r}
+nn.m <-lmer(n.stock.cum ~ treatment + (1| site/plot), na.action=na.exclude, data = no.top2)
+nn.m1 <-lmer(n.stock.cum ~ 1 + (1| site/plot), na.action=na.exclude, data = no.top2)
+anova(nn.m, nn.m1)
+r.squaredGLMM(nn.m)
+plot(nn.m)
+summary(nn.m)
+```
+treament matters
+```{r}
+emmeans(nn.m, "treatment")
+emmeans(nn.m, pairwise ~ treatment)
+pair =  emmeans(nn.m, "treatment")
+plot(pair, comparisons = TRUE)
+```
+
+plot model with raw jitter
+```{r}
+ggplot(no.top2, aes(y = n.stock.cum, x = treatment)) +
+geom_boxplot(size = 1) +
+theme_bw(base_size = 17)
+
+plot(allEffects(nn.m))
+en <- Effect(c("treatment"), nn.m, xlevels=500)
+en =as.data.frame(en)
+
+#home made box plot
+ggplot(en, aes(x=treatment, y=fit, color = treatment, fill = treatment)) + 
+  geom_point(size = 3) + 
+  geom_errorbar(aes(ymin=fit-se, ymax=fit+se), size = 1, width=0.25) + 
+ geom_jitter(data=no.top2, aes(x = treatment, y= n.stock.cum, fill = treatment, color = treatment), alpha = 0.3, width = 0.1) +
+  theme_bw(base_size = 17)+
+  theme(aspect.ratio=1, panel.grid.minor = element_blank(), legend.position="none") +
+  xlab("Disturbance catagory") +
+  ylab(expression("Nitrogen pools (g  "*paste(m^{2}, ")"))) +
+  scale_color_manual(values=c(c("#49997c", "#ae3918", "#d19c2f" )))
+``` 
+
+```{r}
+nnn <-lmer(n.stock.cum ~ treatment + (1| site/plot), na.action=na.exclude, data = sub2)
+nnn1 <-lmer(n.stock.cum ~ 1 + (1| site/plot), na.action=na.exclude, data = sub2)
+anova(nnn, nnn1)
+r.squaredGLMM(nnn)
+```
+treament matters
+```{r}
+emmeans(nnn, "treatment")
+emmeans(nnn, pairwise ~ treatment)
+pair =  emmeans(nnn, "treatment")
+plot(pair, comparisons = TRUE)
+```
+
+plot model with raw jitter
+```{r}
+ggplot(sub2, aes(y = n.stock.cum, x = treatment)) +
+geom_boxplot(size = 1) +
+theme_bw(base_size = 17)
+
+plot(allEffects(nnn))
+ef.nn <- Effect(c("treatment"), nnn, xlevels=500)
+ef.nn =as.data.frame(ef.nn)
+
+#home made box plot
+ggplot(ef.nn, aes(x=treatment, y=fit, color = treatment, fill = treatment)) + 
+  geom_point(size = 3) + 
+  geom_errorbar(aes(ymin=fit-se, ymax=fit+se), size = 1, width=0.25) + 
+ geom_jitter(data=sub2, aes(x = treatment, y= n.stock.cum, fill = treatment, color = treatment), alpha = 0.3, width = 0.1) +
+  theme_bw(base_size = 17)+
+  theme(aspect.ratio=1, panel.grid.minor = element_blank(), legend.position="none") +
+  xlab("Disturbance catagory") +
+  ylab(expression("Nitrogen stocks (g "*paste(m^{2}, ")"))) +
+  scale_color_manual(values=c(c("#49997c", "#ae3918", "#d19c2f" )))
+``` 
+
+Shallow ISOTOPES
+```{r}
+ddd <-lmer(d15N ~ depth * treatment + (1| site/plot/core), na.action=na.exclude, data = shal)
+ddd1 <-lmer(d15N ~ depth + treatment + (1| site/plot/core), na.action=na.exclude, data = shal)
+anova(ddd, ddd1)
+anova(ddd1)
+ddd2 <-lmer(d15N ~ depth + (1| site/plot/core), na.action=na.exclude, data = shal)
+anova(ddd1, ddd2)
+ddd3 <-lmer(d15N ~ 1 + (1| site/plot/core), na.action=na.exclude, data = shal)
+anova(ddd3, ddd2)
+
+plot(ddd2)
+r.squaredGLMM(ddd2)
+summary(ddd2)
+```
+depth matters
+
+```{r}
+plot(allEffects(ddd2))
+eff.nit <- Effect(c("depth"), ddd2, xlevels=500)
+eff.nit=as.data.frame(eff.nit)
+
+ggplot() +
+geom_point(data = shal, aes(x = d15N, y = depth,)) +
+  theme_bw(base_size = 17)+
+theme(aspect.ratio=1, panel.grid.minor = element_blank(), legend.position="none") +  
+ylab("Depth (cm)") +
+xlab(expression(""*paste(delta^{15}, "N (‰)"))) +
+scale_y_reverse() +
+  scale_color_manual(values=c(c("#49997c", "#ae3918", "#d19c2f" ))) +
+geom_line(data=eff.nit, aes(y = depth, x = fit),linetype="solid", size=1)+
+geom_ribbon(data=eff.nit, aes(y = depth, xmax = upper, xmin=lower), alpha=0.2)
+```
+
+```{r}
+aaa <-lmer(d13C ~ depth * treatment + (1| site/plot/core), na.action=na.exclude, data = shal)
+aaa1 <-lmer(d13C ~ depth + treatment + (1| site/plot/core), na.action=na.exclude, data = shal)
+anova(aaa, aaa1)
+anova(aaa)
+
+plot(aaa)
+r.squaredGLMM(aaa)
+summary(aaa)
+
+coef(summary(aaa))[ , "Estimate"]
+```
+depth treatment interaction
+unburned diff from burn and sub. unburned more depleted at surface
+
+```{r}
+emmeans(aaa, "treatment")
+emmeans(aaa, pairwise ~ treatment)
+pair =  emmeans(aaa, "treatment")
+plot(pair, comparisons = TRUE)
+```
+
+```{r}
+plot(allEffects(aaa))
+eff.13 <- Effect(c("depth", "treatment"), aaa, xlevels=500)
+eff.13=as.data.frame(eff.13)
+
+ggplot() +
+geom_point(data = shal, aes(x = d13C, y = depth, group = treatment, color = treatment)) +
+  theme_bw(base_size = 17)+
+theme(aspect.ratio=1, panel.grid.minor = element_blank()) +  
+ylab("Depth (cm)") +
+xlab(expression(""*paste(delta^{13}, "C (‰)"))) +
+scale_y_reverse() +
+  scale_color_manual(values=c(c("#49997c", "#ae3918", "#d19c2f" ))) +
+geom_line(data=eff.13, aes(y = depth, x = fit, group = treatment),linetype="solid", size=1)+
+geom_ribbon(data=eff.13, aes(y = depth, xmax = upper, xmin=lower, group = treatment), alpha=0.2)
+```
+
+C/N to look at properties
+```{r}
+rat.m <-lmer(C.N ~ depth * treatment + (1| site/plot/core), na.action=na.exclude, data = shal)
+rat.m1 <-lmer(C.N ~ depth + treatment + (1| site/plot/core), na.action=na.exclude, data = shal)
+anova(rat.m, rat.m1)
+r.squaredGLMM(rat.m)
+plot(rat.m)
+summary(rat.m)
+```
+depth treatment interaction
+ratio higher in unburned surface. = more C available
+
+```{r}
+emmeans(rat.m, "treatment")
+emmeans(rat.m, pairwise ~ treatment)
+pair =  emmeans(rat.m, "treatment")
+plot(pair, comparisons = TRUE)
+```
+
+```{r}
+plot(allEffects(rat.m))
+eff.rat <- Effect(c("depth", "treatment"), rat.m, xlevels=500)
+eff.rat=as.data.frame(eff.rat)
+
+ggplot() +
+geom_point(data = shal, aes(x = C.N, y = depth, group = treatment, color = treatment)) +
+  theme_bw(base_size = 17)+
+theme(aspect.ratio=1, panel.grid.minor = element_blank()) +  
+ylab("Depth (cm)") +
+xlab(expression("C:N")) +
+scale_y_reverse() +
+  scale_color_manual(values=c(c("#49997c", "#ae3918", "#d19c2f" ))) +
+geom_line(data=eff.rat, aes(y = depth, x = fit, group = treatment),linetype="solid", size=1)+
+geom_ribbon(data=eff.rat, aes(y = depth, xmax = upper, xmin=lower, group = treatment), alpha=0.2)
+```
+
+-------------------------------
+------------------------------
+used in paper
+
+
+shallow isotopes no top in burned area
+```{r}
+shal = read.csv("soil_MS_shal.csv")
+shal$treatment = factor(shal$treatment, levels = c("nothing", "burn", "sub"), labels= c("Unburned", "Burned", "Subsided"))
+
+top.m <-lmer(d15N ~ depth.sub * treatment + (1| site/plot/core), na.action=na.exclude, data = shal)
+top.m1 <-lmer(d15N ~ depth.sub + treatment + (1| site/plot/core), na.action=na.exclude, data = shal)
+anova(top.m, top.m1)
+anova(top.m)
+
+plot(top.m)
+r.squaredGLMM(top.m)
+summary(top.m)
+```
+
+```{r}
+emmeans(top.m, "treatment")
+emmeans(top.m, pairwise ~ treatment)
+pair =  emmeans(top.m, "treatment")
+plot(pair, comparisons = TRUE)
+```
+
+```{r}
+plot(allEffects(top.m))
+e.del <- Effect(c("depth.sub", "treatment"), top.m, xlevels=500)
+e.del=as.data.frame(e.del)
+
+ggplot() +
+geom_point(data = shal, aes(x = d15N, y = depth.sub, group = treatment, fill = treatment, color = treatment)) +
+  theme_bw(base_size = 17)+
+theme(aspect.ratio=1, panel.grid.minor = element_blank()) +  
+ylab("Depth (cm)") +
+xlab(expression(""*paste(delta^{15}, "N (‰)"))) +
+scale_y_reverse() +
+  scale_color_manual(values=c(c("#49997c", "#ae3918", "#d19c2f" ))) +
+geom_line(data=e.del, aes(y = depth.sub, x = fit, group = treatment),linetype="solid", size=1)+
+geom_ribbon(data=e.del, aes(y = depth.sub, xmax = upper, xmin=lower, group = treatment), alpha=0.2) 
+# +  labs(color = "Disturbance catagory")
+```
+
+```{r}
+ct.m <-lmer(d13C ~ depth.sub * treatment + (1| site/plot/core), na.action=na.exclude, data = shal)
+ct.m1 <-lmer(d13C ~ depth.sub + treatment + (1| site/plot/core), na.action=na.exclude, data = shal)
+anova(ct.m, ct.m1)
+anova(ct.m)
+
+plot(ct.m)
+r.squaredGLMM(ct.m)
+summary(ct.m)
+```
+
+```{r}
+emmeans(ct.m, "treatment")
+emmeans(ct.m, pairwise ~ treatment)
+pair =  emmeans(ct.m, "treatment")
+plot(pair, comparisons = TRUE)
+```
+
+```{r}
+plot(allEffects(ct.m))
+e.cth <- Effect(c("depth.sub", "treatment"), ct.m, xlevels=500)
+e.cth=as.data.frame(e.cth)
+
+ggplot() +
+geom_point(data = shal, aes(x = d13C, y = depth.sub, group = treatment, fill = treatment, color = treatment), size = 3) +
+  theme_bw(base_size = 17)+
+theme(aspect.ratio=1, panel.grid.minor = element_blank()) +  
+ylab("Depth (cm)") +
+xlab(expression(""*paste(delta^{13}, "C (‰)"))) +
+scale_y_reverse() +
+  scale_color_manual(values=c(c("#49997c", "#ae3918", "#d19c2f" ))) +
+  scale_fill_manual(values=c(c("#49997c", "#ae3918", "#d19c2f" ))) +
+geom_line(data=e.cth, aes(y = depth.sub, x = fit, group = treatment, color = treatment),linetype="solid", size=1)+
+geom_ribbon(data=e.cth, aes(y = depth.sub, xmax = upper, xmin=lower, group = treatment), alpha=0.2)
+```
+
+```{r}
+cn.m <-lmer(C.N ~ depth.sub * treatment + (1| site/plot/core), na.action=na.exclude, data = shal)
+cn.m1 <-lmer(C.N ~ depth.sub + treatment + (1| site/plot/core), na.action=na.exclude, data = shal)
+anova(cn.m, cn.m1)
+anova(cn.m)
+
+plot(cn.m)
+r.squaredGLMM(cn.m)
+summary(cn.m)
+```
+
+```{r}
+emmeans(cn.m, "treatment")
+emmeans(cn.m, pairwise ~ treatment)
+pair =  emmeans(cn.m, "treatment")
+plot(pair, comparisons = TRUE)
+```
+
+```{r}
+plot(allEffects(ct.m))
+e.cn <- Effect(c("depth.sub", "treatment"), cn.m, xlevels=500)
+e.cn=as.data.frame(e.cn)
+
+ggplot() +
+geom_point(data = shal, aes(x = C.N, y = depth.sub, group = treatment, fill = treatment, color = treatment)) +
+  theme_bw(base_size = 17)+
+theme(aspect.ratio=1, panel.grid.minor = element_blank(), legend.position="none") +  
+ylab("Depth (cm)") +
+xlab("C:N") +
+scale_y_reverse() +
+  scale_color_manual(values=c(c("#49997c", "#ae3918", "#d19c2f" ))) +
+geom_line(data=e.cn, aes(y = depth.sub, x = fit, group = treatment),linetype="solid", size=1)+
+geom_ribbon(data=e.cn, aes(y = depth.sub, xmax = upper, xmin=lower, group = treatment), alpha=0.2)
+```
+
+```{r}
+carb.m <-lmer(C ~ depth.sub * treatment + (1| site/plot/core), na.action=na.exclude, data = shal)
+carb.m1 <-lmer(C.N ~ depth.sub + treatment + (1| site/plot/core), na.action=na.exclude, data = shal)
+anova(carb.m, carb.m1)
+anova(carb.m1)
+carb.m2 <-lmer(C.N ~ treatment + (1| site/plot/core), na.action=na.exclude, data = shal)
+anova(carb.m2, carb.m1)
+carb.m3 <-lmer(C.N ~ 1 + (1| site/plot/core), na.action=na.exclude, data = shal)
+anova(carb.m2, carb.m3)
+
+
+plot(carb.m2)
+r.squaredGLMM(carb.m2)
+summary(carb.m2)
+```
+
+```{r}
+emmeans(carb.m2, "treatment")
+emmeans(carb.m2, pairwise ~ treatment)
+pair =  emmeans(carb.m2, "treatment")
+plot(pair, comparisons = TRUE)
+```
+
+
+```{r}
+plot(allEffects(carb.m2))
+e.carb <- Effect(c("treatment"), carb.m2, xlevels=500)
+e.carb=as.data.frame(e.carb)
+
+#home made box plot
+ggplot(e.carb, aes(x=treatment, y=fit, color = treatment, fill = treatment)) + 
+  geom_point(size = 3) + 
+  geom_errorbar(aes(ymin=fit-se, ymax=fit+se), size = 1, width=0.25) + 
+ geom_jitter(data=shal, aes(x = treatment, y= C, fill = treatment, color = treatment), alpha = 0.3, width = 0.1) +
+  theme_bw(base_size = 17)+
+  theme(aspect.ratio=1, panel.grid.minor = element_blank(), legend.position="none") +
+  xlab("Disturbance catagory") +
+  ylab("C (‰)") +
+  scale_color_manual(values=c(c("#49997c", "#ae3918", "#d19c2f" )))
+```
+
+```{r}
+nit.m <-lmer(N ~ depth.sub * treatment + (1| site/plot/core), na.action=na.exclude, data = shal)
+nit.m1 <-lmer(C.N ~ depth.sub + treatment + (1| site/plot/core), na.action=na.exclude, data = shal)
+anova(nit.m, nit.m1)
+anova(nit.m)
+
+plot(nit.m)
+r.squaredGLMM(nit.m)
+summary(nit.m)
+```
+
+```{r}
+emmeans(nit.m, "treatment")
+emmeans(nit.m, pairwise ~ treatment)
+pair =  emmeans(nit.m, "treatment")
+plot(pair, comparisons = TRUE)
+```
+
+```{r}
+plot(allEffects(nit.m))
+e.nit <- Effect(c("depth.sub", "treatment"), nit.m, xlevels=500)
+e.nit=as.data.frame(e.nit)
+
+ggplot() +
+geom_point(data = shal, aes(x = N, y = depth.sub, group = treatment, fill = treatment, color = treatment)) +
+  theme_bw(base_size = 17)+
+theme(aspect.ratio=1, panel.grid.minor = element_blank(), legend.position="none") +  
+ylab("Depth (cm)") +
+xlab("N (‰)") +
+scale_y_reverse() +
+  scale_color_manual(values=c(c("#49997c", "#ae3918", "#d19c2f" ))) +
+geom_line(data=e.nit, aes(y = depth.sub, x = fit, group = treatment),linetype="solid", size=1)+
+geom_ribbon(data=e.nit, aes(y = depth.sub, xmax = upper, xmin=lower, group = treatment), alpha=0.2)
+```

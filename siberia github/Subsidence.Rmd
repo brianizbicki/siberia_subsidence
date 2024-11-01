@@ -1,0 +1,112 @@
+---
+title: "AshSubCalc"
+author: "Brian Izbicki"
+date: '2022-10-25'
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+Calculate Subsidence from ash based on Heidi R. methods and code
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(plyr)
+library(dplyr)
+library(tidyr)
+
+```
+
+load data
+```{r}
+data = read.csv("sub_data_clean.csv")
+
+```
+
+funtion for ash mass calculation 
+```{r}
+calc_ash_depth1 <- function(x) {
+  if (x$disturb[1] == x$disturb.min.mass[1]) {
+    depth <- x$max.depth[1]
+  } else {
+    running.mass <- 0
+    n = nrow(x)
+    for (i in 1:n) {
+      if ((running.mass + x$ash.mass[i]) < x$ash.mass.total[i]) {
+        running.mass <- running.mass + x$ash.mass[i]
+        depth <- x$depth1[i]
+      } else if (running.mass == x$ash.mass.total[i]) {
+        depth <- depth
+      } else {
+        depth <- depth + (x$depth1[i] - x$depth0[i]) * ((x$ash.mass.total[i] - running.mass)/x$ash.mass[i])
+        running.mass <- x$ash.mass.total[i]
+      }
+    }
+  }
+  data.frame(return(depth))
+}
+calc_soil_depth1 <- function(x) {
+  if (x$disturb[1] == x$disturb.min.mass[1]) {
+    depth <- x$max.depth[1]
+  } else {
+    running.mass <- 0
+    n = nrow(x)
+    for (i in 1:n) {
+      if ((running.mass + x$soil.mass[i]) < x$soil.mass.total[i]) {
+        running.mass <- running.mass + x$soil.mass[i]
+        depth <- x$depth1[i]
+      } else if (running.mass == x$soil.mass.total[i]) {
+        depth <- depth
+      } else {
+        depth <- depth + (x$depth1[i] - x$depth0[i]) * ((x$soil.mass.total[i] - running.mass)/x$soil.mass[i])
+        running.mass <- x$soil.mass.total[i]
+      }
+    }
+  }
+  data.frame(return(depth))
+}
+```
+
+calculate the height of cores with the same amount of soil mass compared to unburned
+```{r}
+#look at this for depth differences#
+ash_mass <- data %>%
+  select(1,3:11) %>%
+  filter(moisture != is.na(moisture)) %>%
+  group_by(disturb, treatment, plot) %>%
+  mutate(soil.mass = bulk.density*(depth1 - depth0),
+         soil.mass.tot = cumsum(soil.mass),
+         ash.mass = ash*bulk.density*(depth1 - depth0)/1000,
+         ash.mass.tot = cumsum(ash.mass))
+
+ash_mass_tot <- ash_mass %>%
+  group_by( disturb, treatment, plot) %>%
+  summarise(soil.mass.total = sum(soil.mass, na.rm = TRUE),
+            ash.mass.total = sum(ash.mass, na.rm = TRUE),
+            max.depth = max(depth1)) %>%
+  group_by(treatment, plot) %>%
+  filter(ash.mass.total == min(ash.mass.total)) %>%
+  arrange(treatment, plot) %>%
+  rename(disturb.min.mass = disturb)
+
+ash_mass_2 <- ash_mass %>%
+  left_join(ash_mass_tot, by = c('treatment', 'plot')) %>%
+  group_by(disturb, treatment, plot)
+
+soil_core_subs <- ddply(ash_mass_2, c('disturb', 'treatment', 'plot'), calc_ash_depth1) %>%
+  mutate(disturb = paste('depth.', disturb, sep = '')) %>%
+  spread(key = disturb, value = V1) %>%
+  mutate(soil.core.sub.ash = 1 - 3)# %>%
+  select(-disturb.1, -disturb.1)
+
+soil_core_sub_2 <- ddply(ash_mass_2, c('disturb', 'treatment', 'plot'), calc_soil_depth1) %>%
+  mutate(year = paste('depth.', disturb, sep = '')) %>%
+  spread(key = disturb, value = V1) %>%
+  mutate(soil.core.sub.soil = depth.2013 - depth.2009) %>%
+  select(-depth.2009, -depth.2013) %>%
+  full_join(soil_core_sub, by = c('treatment', 'plot'))
+```
+
+```{r}
+
+```
+

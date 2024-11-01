@@ -1,0 +1,257 @@
+---
+title: "BAI_biomass"
+author: "Brian Izbicki"
+date: '2022-10-07'
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplR)
+library(ggplot2)
+library(Hmisc)
+library(Rmisc)
+library(MuMIn)
+library(nlme)
+library(lme4)
+library(lmerTest)
+library(effects)
+library(dplyr)
+library(emmeans)
+library(wesanderson)
+library(car)
+```
+
+```{r}
+shrubs <- read.rwl("Izbicki_Siberia_sub_rings_tucson.txt")
+melt = read.csv("shrubs_bai_full_melt1.csv")
+```
+
+ring width stats
+```{r}
+seg.plot(shrubs)
+plot(shrubs, plot.type = "spag")
+rwl.stats(shrubs)
+
+#chronology check figure
+rwl.4 <- corr.rwl.seg(shrubs, seg.length=6, pcrit=0.01)
+
+sub <- read.rwl("sub_rwl.txt")
+fire <- read.rwl("fire_rwl.txt")
+nothing <- read.rwl("nothing_rwl.txt")
+
+sub.chr <- corr.rwl.seg(sub, seg.length=2, pcrit=0.01)
+fire.chr <- corr.rwl.seg(sub, seg.length=2, pcrit=0.01)
+nothing.chr <- corr.rwl.seg(sub, seg.length=2, pcrit=0.01)
+```
+
+detrend rings and truncate data to include only close trends
+```{r}
+shrubs.rwi <- detrend(shrubs, method = "Spline")
+rwi.stats(shrubs)
+shrubs.crn <- chron(shrubs.rwi)
+plot(shrubs.crn, add.spline = TRUE, nyrs = 3)
+shrubs.crn.Trunc <- subset(shrubs.crn, samp.depth > 10)
+plot(shrubs.crn.Trunc, add.spline = TRUE, nyrs = 3)
+shrubs.crn.Trunc <- subset(shrubs.crn, samp.depth > 5)
+plot(shrubs.crn.Trunc, add.spline = TRUE, nyrs = 3)
+```
+
+BAI calc
+```{r}
+shrubs.bai <- bai.in(shrubs)
+shrubs.bai.m <- as.matrix(shrubs.bai) 
+shrubs.bai.melt <- reshape2::melt(shrubs.bai.m, id.var='YEAR')
+head(shrubs.bai.melt)
+
+write.csv(shrubs.bai.melt, file = "SIB_SHRUBS.bai.csv")
+
+#melted BAI with treatments
+SIB_FINAL <- read.csv("shurbs.full.melt1.csv")
+```
+
+BAI by treatment. look at whats going on.
+```{r}
+SIB.TREAT <- summarySE(SIB_FINAL, measurevar="BAI", groupvars=c("YEAR","TREAT"), na.rm = TRUE)
+SIB.TREAT.GG <- as.data.frame(SIB.TREAT)
+
+SIB.TREAT.GG$TREAT = factor(SIB.TREAT.GG$TREAT, levels = c("Unburned", "Burned", "Subsidence"), labels= c("Unburned", "Burned", "Subsided"))
+
+SIB.TREAT.PLOT <- ggplot(SIB.TREAT.GG, aes(x=YEAR, y=BAI, group=TREAT, color=TREAT)) + 
+  geom_line(aes(linetype=TREAT, color=TREAT), size =1) +
+  scale_linetype_manual(values=c("solid", "solid", "solid")) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin=BAI-se, ymax=BAI+se), size = 1, width=.1, show.legend=FALSE) +
+  theme_bw(base_size = 17)+
+  theme(panel.grid.minor = element_blank(), legend.position="none") +
+  ylab(expression("Basal area increment ("*paste(mm^{2}, ")"))) +
+  xlab("Year") +
+  scale_color_manual(values=c(c("#49997c", "#ae3918", "#d19c2f" ))) +
+  facet_grid(~TREAT)
+
+SIB.TREAT.PLOT
+```
+
+```{r}
+SIB_FINAL <- read.csv("shurbs.full.melt1.csv")
+
+hist(SIB_FINAL$BAI)
+
+ggplot(SIB_FINAL, aes(x = YEAR, y = BAI, color = TREAT)) +
+geom_point(size = 2) +
+theme_bw(base_size = 17)
+
+ggplot(SIB_FINAL, aes(x = TREAT,y = BAI, color = TREAT)) +
+geom_bar(size = 1) +
+theme_bw(base_size = 17)
+
+SIB_FINAL$TREAT = factor(SIB_FINAL$TREAT,levels = c("nothing", "fire", "sub"), labels= c("Unburned", "Burned", "Subsided"))
+```
+
+```{r}
+glm.bai <- glmer(data = SIB_FINAL, BAI ~ TREAT * YEAR + (1| SITE/PLOT) + (1| SERIES),  family = Gamma(link="log"))
+glm.bai1 <- glmer(data = SIB_FINAL, BAI ~ TREAT + YEAR + (1| SITE/PLOT) + (1| SERIES),  family = Gamma(link="log"))
+anova(glm.bai, glm.bai1)
+Anova(glm.bai)
+glm.bai2 <- glmer(data = SIB_FINAL, BAI ~  YEAR + (1| SITE/PLOT) + (1| SERIES),  family = Gamma(link="log"))
+anova(glm.bai2, glm.bai1)
+
+plot(glm.bai1)
+r.squaredGLMM(glm.bai1)
+summary(glm.bai1)
+```
+
+```{r}
+emmeans(glm.bai1, "TREAT")
+emmeans(glm.bai1, pairwise ~ TREAT)
+pair.bai=  emmeans(glm.bai1, "TREAT")
+plot(pair.bai, comparisons = TRUE)
+
+exp(0.783)
+exp(1.663)
+exp(1.732)
+```
+
+```{r}
+plot(allEffects(glm.bai1))
+trt.eff <- Effect(c("TREAT"), glm.bai1, xlevels=500)
+trt.eff=as.data.frame(trt.eff)
+
+#home made box plot
+ggplot(trt.eff, aes(x= TREAT, y=fit, color = TREAT, fill = TREAT)) + 
+  geom_point(size = 3) + 
+  geom_errorbar(aes(ymin=fit-se, ymax=fit+se), size = 1, width=0.25) + 
+# geom_jitter(data=SIB_FINAL, aes(x = TREAT, y= BAI), alpha = 0.1, width = 0.1) +
+  theme_bw(base_size = 17)+
+  theme(aspect.ratio=1, panel.grid.minor = element_blank(), legend.position="none") +
+  xlab("Disturbance catagory")+
+  ylab(expression("Basal area increment (m "*paste(m^{2}, ")"))) +
+  scale_color_manual(values=c(c("#49997c", "#ae3918", "#d19c2f" )))
+
+#bar plot
+ggplot(trt.eff, aes(x= TREAT, y=fit, fill = TREAT)) + 
+  geom_bar(stat = "identity", position = "dodge", colour = "black", fill = c("#49997c", "#ae3918", "#d19c2f" )) +
+  geom_errorbar(aes(ymax=fit+se,ymin=fit-se),position=position_dodge(.9),width=0.2)+
+  #geom_jitter(data=bd.calc, aes(x = TREAT, y=total.agb, fill = TREAT, color = TREAT), alpha = 0.5, width = 0.3) +
+  theme_bw(base_size = 17)+
+   theme(aspect.ratio=1, panel.grid.minor = element_blank(), legend.position="none") +
+  xlab("Disturbance catagory")+
+  ylab(expression("Basal area increment (m"*paste(m^{2}, ")"))) +
+  scale_color_manual(values=c(c("#49997c", "#ae3918", "#d19c2f" )))
+
+plot(allEffects(glm.bai1))
+bm.yr <- Effect(c("YEAR"), glm.bai1, xlevels=500)
+bm.yr=as.data.frame(bm.yr)
+
+ggplot() +
+geom_point(data=SIB_FINAL, aes(x = YEAR, y= BAI), size=1,  height=0.01) +
+theme_bw(base_size = 17)+
+theme(aspect.ratio=1, panel.grid.minor = element_blank(), legend.position="none") +  
+xlab("Year")+
+ylab(expression("Basal area increment (m "*paste(m^{2}, ")"))) +
+geom_line(data=bm.yr, aes(x = YEAR, y = fit),linetype="solid", size=1)+
+geom_ribbon(data=bm.yr, aes(x =YEAR, ymax = upper, ymin=lower), alpha=0.2) +
+  scale_color_manual(values=c(c("#49997c", "#ae3918", "#d19c2f" ))) 
+```
+
+biomass work
+```{r}
+shrubs.bd = as.matrix(shrubs)
+shrubs.bd.m <- as.matrix(shrubs.bd) 
+shrubs.bd.mt <- reshape2::melt(shrubs.bd.m, id.var='YEAR')
+head(shrubs.bd.mt)
+write.csv(shrubs.bd.mt, file = "shrubs.rw.melt.csv")
+```
+
+allometric equations from Berner et al 2015
+Using eqaution for boreal Yakutia willow
+```{r}
+bd = read.csv("basal diameter.csv")
+
+bd.calc = bd %>%
+  mutate(stem.bio = (16.53*(DIAMETER^2.85))) %>%
+  mutate(branch.bio = (3.56*(DIAMETER^3.06))) %>%
+  mutate(new.bio = (3.11*(DIAMETER^2.18))) %>%
+  mutate(tot.s.b.n = (stem.bio+branch.bio+new.bio)) %>%
+  mutate(total.agb = (23.53*(DIAMETER^2.83)))
+
+bd.calc$TREAT = factor(bd.calc$TREAT, levels = c("nothing", "fire", "sub"), labels= c("Unburned", "Burned", "Subsided"))
+```
+adding 3 pools gets same agb as the agb equation. Just checking
+
+abg modelling salix
+```{r}
+#use bd.calc dataframe
+glm.bm <- glmer(data = bd.calc, total.agb ~ TREAT + (1| SITE/PLOT),  family = Gamma(link="log"))
+glm.bm1 <- glmer(data = bd.calc, total.agb ~ 1 + (1| SITE/PLOT),  family = Gamma(link="log"))
+anova(glm.bm, glm.bm1)
+Anova(glm.bm)
+plot(glm.bm)
+r.squaredGLMM(glm.bm)
+summary(glm.bm)
+```
+
+emmeans
+```{r}
+emmeans(glm.bm, "TREAT")
+emmeans(glm.bm, pairwise ~ TREAT)
+pair.bm=  emmeans(glm.bm, "TREAT")
+plot(pair.bm, comparisons = TRUE)
+
+exp(2.85)
+exp(3.73)
+exp(3.97)
+
+```
+
+means se for graph by treatment 
+```{r}
+#plotted with model outputs
+plot(allEffects(glm.bm))
+bm <- Effect(c("TREAT"), glm.bm, xlevels=500)
+bm=as.data.frame(bm)
+
+#home made box plot
+ggplot(bm, aes(x= TREAT, y=fit, fill = TREAT, color= TREAT)) + 
+  geom_point(size = 3) + 
+  geom_errorbar(aes(ymin=fit-se, ymax=fit+se), size = 1, width=0.25) + 
+# geom_jitter(data=bd.calc, aes(x = TREAT, y=total.agb, fill = TREAT, color = TREAT), alpha = 0.2, width = 0.1) +
+  theme_bw(base_size = 17)+
+  theme(aspect.ratio=1, panel.grid.minor = element_blank(), legend.position="none") +
+  xlab("Disturbance catagory") +
+  ylab(expression("Aboveground biomass (g  "*paste(m^{2}, " stem)"))) +
+  scale_color_manual(values=c(c("#49997c", "#ae3918", "#d19c2f" )))
+
+#bar plot
+ggplot(bm, aes(x= TREAT, y=fit, fill = TREAT)) + 
+  geom_bar(stat = "identity", position = "dodge", colour = "black", fill = c("#49997c", "#ae3918", "#d19c2f" )) +
+  geom_errorbar(aes(ymax=fit+se,ymin=fit-se),position=position_dodge(.9),width=0.2)+
+  geom_jitter(data=bd.calc, aes(x = TREAT, y=total.agb, fill = TREAT, color = TREAT), alpha = 0.5, width = 0.3) +
+  theme_bw(base_size = 17)+
+   theme(aspect.ratio=1, panel.grid.minor = element_blank(), legend.position="none") +
+  xlab("Treatment")+
+  ylab(expression("Aboveground biomass (g "*paste(m^{2}, ")"))) +
+  scale_color_manual(values=c(c("#49997c", "#ae3918", "#d19c2f" )))
+ 
+```

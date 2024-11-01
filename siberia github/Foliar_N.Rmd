@@ -1,0 +1,389 @@
+---
+title: "R Notebook"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+load packages
+```{r}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(dplyr)
+library(lme4)
+library(lmerTest)
+library(MuMIn) #rsquared
+library(emmeans)
+library(wesanderson)
+library(effects)
+```
+
+Environmental variables(sol depth etc) at bottom of script
+
+load foliar data and predictors
+```{r}
+needs = read.csv("foliar.csv")
+preds = read.csv("PerdyPred.csv")
+```
+
+changing treatment factor names
+```{r}
+needs$trt = factor(needs$trt, levels = c("U", "T", "S"), labels= c("Unburned", "Burned", "Subsided"))
+preds$trt = factor(preds$trt, levels = c("unburned", "burn", "burn/sub"), labels= c("Unburned", "Burned", "Subsided"))
+
+fol = merge(needs, preds, by = c("site", "trt", "plot"))
+```
+
+N models
+```{r}
+m1 <-lmer(n ~ trt + (1|site/plot), na.action=na.exclude, data = fol)
+m2 <-lmer(n ~ 1  + (1|site/plot), na.action=na.exclude, data = fol)
+anova(m2, m1)
+anova(m1)
+
+plot(m1)
+r.squaredGLMM(m1)
+summary(m1)
+```
+N
+means and contrasts
+```{r}
+fol.trt =  emmeans(m1, "trt")
+pairs(fol.trt)
+emmeans(m1, "trt")
+plot(fol.trt, comparisons = TRUE)
+```
+
+graph N
+```{r}
+plot(allEffects(m1))
+trt.eff <- Effect(c("trt"), m1, xlevels=500)
+trt.eff=as.data.frame(trt.eff)
+
+#home made box plot
+ggplot(trt.eff, aes(x=trt, fit, color=trt, fill = trt)) + 
+  geom_point(size = 3) + 
+  geom_errorbar(aes(ymin=fit-se, ymax=fit+se), size = 1, width=0.25) + 
+  theme_bw(base_size = 17)+
+  theme(aspect.ratio=1, panel.grid.minor = element_blank(), legend.position="none") +
+   geom_jitter(data=fol, aes(x = trt, y= n, fill = trt, color =  trt), alpha = 0.2, width = 0.1) +
+  xlab("Disturbance catagory") +
+  ylab("Nitrogen (%)") +
+  scale_color_manual(values=c(c("#49997c", "#ae3918", "#d19c2f" )))
+
+#bar plot
+ggplot(trt.eff, aes(x=trt, fit, fill = trt)) +  
+  geom_bar(stat = "identity", position = "dodge", colour = "black", fill = c("#49997c", "#ae3918", "#d19c2f" )) +
+  geom_errorbar(aes(ymax=fit+se,ymin=fit-se),position=position_dodge(.9),width=0.2)+
+  theme_bw(base_size = 17)+
+  theme(legend.position="none") +
+  xlab("Treatment")+
+  ylab("Nitrogen (%)") 
+```
+
+delta 13C models
+```{r}
+dc1 <-lmer(delta.c ~ trt + (1|site/plot), na.action=na.exclude, data = fol)
+anova(dc1)
+dc2 <-lmer(delta.c ~ 1 + (1|site/plot), na.action=na.exclude, data = fol)
+anova(dc1, dc2)
+
+plot(dc1)
+r.squaredGLMM(dc1)
+summary(dc1)
+```
+deltaC13 is controlled by treatment
+
+delta 13C means
+```{r}
+fol.trt1 =  emmeans(dc1, "trt")
+emmeans(dc1, ~ trt )
+emmeans(dc1, pairwise ~ trt)
+plot(fol.trt1, comparisons = TRUE)
+```
+
+graph delta 13C
+```{r}
+plot(allEffects(dc1))
+trt.th <- Effect("trt", dc1, xlevels=500)
+trt.th=as.data.frame(trt.th)
+
+#home made box plot
+ggplot(trt.th, aes(x=trt, fit, color=trt, fill = trt)) + 
+  geom_point(size = 3) + 
+  geom_errorbar(aes(ymin=fit-se, ymax=fit+se), size = 1, width=0.25) + 
+   geom_jitter(data=fol, aes(x = trt, y= delta.c, fill = trt, color =  trt), alpha = 0.2, width = 0.1) +
+  theme_bw(base_size = 17)+
+  theme(aspect.ratio=1, panel.grid.minor = element_blank(), legend.position="none") +
+  xlab("Disturbance catagory") +
+  ylab(expression(""*paste(delta^{13}, "C (‰)"))) +
+  scale_color_manual(values=c(c("#49997c", "#ae3918", "#d19c2f" )))
+
+ggplot(trt.th, aes(x= trt, y=fit, fill = trt)) + 
+  geom_bar(stat = "identity", position = "dodge", colour = "black", fill = c("#49997c", "#ae3918", "#d19c2f" )) +
+  geom_errorbar(aes(ymax=fit+se,ymin=fit-se),position=position_dodge(.9),width=0.2)+
+  theme_bw(base_size = 17)+
+  theme(legend.position="none") +
+ xlab("Treatment") +
+  ylab(expression(""*paste(delta^{13}, "C (‰)"))) +
+  scale_color_manual(values=wes_palette(n=3, name="Darjeeling1")) +
+  scale_y_reverse()
+```
+
+delta 15 N model
+```{r}
+dn1 <-lmer(delta.n ~ trt +  (1|site/plot), na.action=na.exclude, data = fol)
+dn2 <-lmer(delta.n ~ 1 + (1|site/plot), na.action=na.exclude, data = fol)
+anova(dn1, dn2)
+anova(dn1)
+
+plot(dn1)
+r.squaredGLMM(dn1)
+summary(dn1)
+```
+
+```{r}
+plot(allEffects(dn1))
+trt.nn <- Effect("trt", dn1, xlevels=500)
+trt.nn=as.data.frame(trt.nn)
+
+#home made box plot
+ggplot(trt.nn, aes(x=trt, fit, color=trt, fill = trt)) + 
+  geom_point(size = 3) + 
+  geom_errorbar(aes(ymin=fit-se, ymax=fit+se), size = 1, width=0.25) + 
+   geom_jitter(data=fol, aes(x = trt, y= delta.n, fill = trt, color =  trt), alpha = 0.2, width = 0.1) +
+  theme_bw(base_size = 17)+
+  theme(aspect.ratio=1, panel.grid.minor = element_blank(), legend.position="none") +
+  xlab("Disturbance catagory") +
+  ylab(expression(""*paste(delta^{15}, "N (‰)"))) +
+  scale_color_manual(values=c(c("#49997c", "#ae3918", "#d19c2f" )))
+```
+
+delta 15N means
+```{r}
+fol.trt2 =  emmeans(dn1, "trt")
+emmeans(dn1, ~ trt )
+emmeans(dn1, pairwise ~ trt)
+plot(fol.trt2, comparisons = TRUE)
+```
+
+foliar CN
+```{r}
+cn <-lmer(CN ~ trt + (1|site/plot), na.action=na.exclude, data = fol)
+cn1 <-lmer(CN ~ 1  + (1|site/plot), na.action=na.exclude, data = fol)
+anova(cn, cn1)
+anova(cn)
+
+plot(cn)
+r.squaredGLMM(cn)
+summary(cn)
+```
+
+```{r}
+plot(allEffects(cn))
+trt.ccnn <- Effect("trt", cn, xlevels=500)
+trt.ccnn=as.data.frame(trt.ccnn)
+
+#home made box plot
+ggplot(trt.ccnn, aes(x=trt, fit, color=trt, fill = trt)) + 
+  geom_point(size = 3) + 
+  geom_errorbar(aes(ymin=fit-se, ymax=fit+se), size = 1, width=0.25) + 
+   geom_jitter(data=fol, aes(x = trt, y= CN, fill = trt, color =  trt), alpha = 0.2, width = 0.1) +
+  theme_bw(base_size = 17)+
+  theme(aspect.ratio=1, panel.grid.minor = element_blank(), legend.position="none") +
+  xlab("Disturbance catagory") +
+  ylab("C:N") +
+  scale_color_manual(values=c(c("#49997c", "#ae3918", "#d19c2f" )))
+```
+
+=====================
+=====================
+environmental preds
+```{r}
+preds = read.csv("PerdyPred.csv")
+
+preds$trt = factor(preds$trt, levels = c("unburned", "burn", "burn/sub"), labels= c("Unburned", "Burned", "Subsided"))
+```
+
+soil depth
+```{r}
+sol.m <-lmer(soil ~ trt +  (1|site), na.action=na.exclude, data = preds)
+sol.m1 <-lmer(soil ~ 1 +  (1|site), na.action=na.exclude, data = preds)
+anova(sol.m, sol.m1)
+anova(sol.m)
+plot(sol.m)
+r.squaredGLMM(sol.m)
+summary(sol.m)
+```
+
+```{r}
+emmeans(sol.m, "trt")
+emmeans(sol.m, pairwise ~ trt)
+pair =  emmeans(ton.m, "trt")
+plot(pair, comparisons = TRUE)
+```
+
+```{r}
+#plotted with model outputs
+plot(allEffects(sol.m))
+ef.sol <- Effect(c("trt"), sol.m, xlevels=500)
+ef.sol=as.data.frame(ef.sol)
+
+#home made box plot
+ggplot(ef.sol, aes(x= trt, y=fit, fill = trt, color= trt)) + 
+  geom_point(size = 3) + 
+  geom_errorbar(aes(ymin=fit-se, ymax=fit+se), size = 1, width=0.25) + 
+ geom_jitter(data=preds, aes(x = trt, y=soil, fill = trt, color = trt), alpha = 0.2, width = 0.1) +
+  theme_bw(base_size = 17)+
+  theme(aspect.ratio=1, panel.grid.minor = element_blank(), legend.position="none") +
+  xlab("Disturbance catagory") +
+  ylab("Soil organic layer depth (cm)") +
+  scale_color_manual(values=c(c("#49997c", "#ae3918", "#d19c2f" )))
+
+#bar plot
+ggplot(ef.sol, aes(x= trt, y=fit, fill = trt)) + 
+  geom_bar(stat = "identity", position = "dodge", colour = "black", fill = c("#49997c", "#ae3918", "#d19c2f" )) +
+  geom_errorbar(aes(ymax=fit+se,ymin=fit-se),position=position_dodge(.9),width=0.2)+
+ # geom_jitter(data=preds, aes(x = trt, y=soil, fill = trt, color = trt), alpha = 0.5, width = 0.3) +
+  theme_bw(base_size = 17)+
+   theme(aspect.ratio=1, panel.grid.minor = element_blank(), legend.position="none") +
+  xlab("Disturbance catagory") +
+  ylab("Soil organic layer depth (cm)") +
+  scale_color_manual(values=c(c("#49997c", "#ae3918", "#d19c2f" )))
+```
+
+thaw depth
+```{r}
+thaw.m <-lmer(thaw ~ trt +  (1|site), na.action=na.exclude, data = preds)
+thaw.m1 <-lmer(thaw ~ 1 +  (1|site), na.action=na.exclude, data = preds)
+anova(thaw.m, thaw.m1)
+anova(thaw.m)
+plot(thaw.m)
+r.squaredGLMM(thaw.m)
+summary(thaw.m)
+```
+
+```{r}
+trt2 =  emmeans(thaw.m, "trt")
+emmeans(thaw.m, ~ trt )
+emmeans(thaw.m, pairwise ~ trt)
+plot(trt2, comparisons = TRUE)
+```
+
+```{r}
+plot(allEffects(thaw.m))
+ef.th <- Effect(c("trt"), thaw.m, xlevels=500)
+ef.th=as.data.frame(ef.th)
+
+#home made box plot
+ggplot(ef.th, aes(x= trt, y=fit, fill = trt, color= trt)) + 
+  geom_point(size = 3) + 
+  geom_errorbar(aes(ymin=fit-se, ymax=fit+se), size = 1, width=0.25) + 
+ geom_jitter(data=preds, aes(x = trt, y=thaw, fill = trt, color = trt), alpha = 0.2, width = 0.1) +
+  theme_bw(base_size = 17)+
+  theme(aspect.ratio=1, panel.grid.minor = element_blank(), legend.position="none") +
+ scale_y_reverse() +
+   xlab("Disturbance catagory") +
+  ylab("Thaw depth (cm)") +
+  scale_color_manual(values=c(c("#49997c", "#ae3918", "#d19c2f" )))
+
+ggplot(ef.th, aes(x= trt, y=fit, fill = trt)) + 
+  geom_bar(stat = "identity", position = "dodge", colour = "black", fill = c("#49997c", "#ae3918", "#d19c2f" )) +
+  geom_errorbar(aes(ymax=fit+se,ymin=fit-se),position=position_dodge(.9),width=0.2)+
+  #geom_jitter(data=preds, aes(x = trt, y=thaw, fill = trt, color = trt), alpha = 0.5, width = 0.3) +
+  theme_bw(base_size = 17)+
+   theme(aspect.ratio=1, panel.grid.minor = element_blank(), legend.position="none") +
+ scale_y_reverse() +
+   xlab("Disturbance catagory") +
+  ylab("Thaw depth (cm)") +
+  scale_color_manual(values=c(c("#49997c", "#ae3918", "#d19c2f" )))
+```
+
+tape subsidence
+```{r}
+sub.m <-lmer(sub ~ trt +  (1|site), na.action=na.exclude, data = preds)
+sub.m1 <-lmer(thaw ~ 1 +  (1|site), na.action=na.exclude, data = preds)
+anova(sub.m, sub.m1)
+anova(sub.m)
+plot(sub.m)
+r.squaredGLMM(sub.m)
+summary(sub.m)
+```
+
+```{r}
+emmeans(sub.m, "trt")
+emmeans(sub.m, pairwise ~ trt)
+pair =  emmeans(sub.m, "trt")
+plot(pair, comparisons = TRUE)
+```
+
+```{r}
+plot(allEffects(sub.m))
+ef.sub <- Effect(c("trt"), sub.m, xlevels=500)
+ef.sub=as.data.frame(ef.sub)
+
+#home made box plot
+ggplot(ef.sub, aes(x= trt, y=fit, fill = trt, color= trt)) + 
+  geom_point(size = 3) + 
+  geom_errorbar(aes(ymin=fit-se, ymax=fit+se), size = 1, width=0.25) + 
+ geom_jitter(data=preds, aes(x = trt, y=sub, fill = trt, color = trt), alpha = 0.2, width = 0.1) +
+  theme_bw(base_size = 17)+
+  theme(aspect.ratio=1, panel.grid.minor = element_blank(), legend.position="none") +
+ scale_y_reverse() +
+  xlab("Disturbance catagory") +
+  ylab("Subsidence (cm)") +
+  scale_color_manual(values=c(c("#49997c", "#ae3918", "#d19c2f" )))
+
+ggplot(ef.sub, aes(x= trt, y=fit, fill = trt)) + 
+  geom_bar(stat = "identity", position = "dodge", colour = "black", fill = c("#49997c", "#ae3918", "#d19c2f" )) +
+  geom_errorbar(aes(ymax=fit+se,ymin=fit-se),position=position_dodge(.9),width=0.2)+
+  #geom_jitter(data=preds, aes(x = trt, y=thaw, fill = trt, color = trt), alpha = 0.5, width = 0.3) +
+  theme_bw(base_size = 17)+
+   theme(aspect.ratio=1, panel.grid.minor = element_blank(), legend.position="none") +
+ scale_y_reverse() +
+   xlab("Disturbance catagory") +
+  ylab("Subsidence (cm)") +
+  scale_color_manual(values=c(c("#49997c", "#ae3918", "#d19c2f" )))
+
+```
+
+
+ash subsidence
+```{r}
+ash.m <-lm(ash ~ trt, na.action=na.exclude, data = preds)
+ash.m1 <-lm(ash ~ 1 , na.action=na.exclude, data = preds)
+anova(ash.m, ash.m1)
+anova(ash.m)
+summary(ash.m)
+r.squaredGLMM(ash.m)
+
+sub2 =  emmeans(ash.m, "trt")
+emmeans(ash.m, ~ trt )
+emmeans(ash.m, pairwise ~ trt)
+plot(ash.m, comparisons = TRUE)
+
+preds1 = preds %>% 
+  group_by(trt) %>% 
+  summarize(mean = mean(ash, na.rm=TRUE)) %>% 
+  group_by(trt)%>%
+  summarize (ash1 = mean(mean),
+            se = sd(mean)/sqrt(length(mean)))
+
+ggplot(preds1, aes(x= trt, y=ash1)) + 
+   geom_bar(stat = "identity", position = "dodge", colour = "black", fill = c("#49997c", "#ae3918", "#d19c2f" )) +
+  geom_errorbar(aes(ymax=ash1+se,ymin=ash1-se),position=position_dodge(.9),width=0.2)+
+  scale_y_reverse()+
+   theme_bw(base_size = 17)+
+   theme(aspect.ratio=1, panel.grid.minor = element_blank(), legend.position="none") +
+  xlab("Disturbance catagory") +
+  ylab("Subsidence (cm)")
+```
+
+salix twig growth = not significant
+```{r}
+g.m <-lmer(growth ~ trt +  (1|site), na.action=na.exclude, data = preds)
+g.m1 <-lmer(growth ~ 1 +  (1|site), na.action=na.exclude, data = preds)
+anova(g.m, g.m1)
+plot(g.m1)
+r.squaredGLMM(g.m1)
+summary(g.m)
+```

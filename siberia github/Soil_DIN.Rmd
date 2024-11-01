@@ -1,0 +1,227 @@
+---
+title: "R Notebook"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(ggplot2)
+library(lme4)
+library(lmerTest)
+library(MuMIn)
+library(nlme)
+library(effects)
+library(influence.ME)
+library(car)
+library(emmeans)
+```
+
+```{r}
+din = read.csv("sib_din.csv")
+
+din$treatment = factor(din$treatment, levels = c("nothing", "fire", "sub"), labels= c("Unburned", "Burned", "Subsided"))
+```
+
+```{r}
+hist(din$DIN.area)
+
+ggplot(din, aes(x = DIN.area, y = depth1, color = treatment)) +
+geom_point(size = 2) +
+theme_bw(base_size = 17) +
+scale_y_reverse()
+
+ggplot(din, aes(y = DIN.area, x = treatment)) +
+geom_boxplot(size = 2) +
+theme_bw(base_size = 17)
+```
+
+```{r}
+m1 <- glmer(DIN.area ~ treatment * depth1 + (1| label),  family = Gamma(link="log"), data = din)
+m2 <- glmer(DIN.area ~ treatment + depth1 + (1| label),  family = Gamma(link="log"), data = din)
+anova(m1, m2)
+Anova(m2)
+m3 <- glmer(DIN.area ~ treatment + (1| label),  family = Gamma(link="log"), data = din)
+anova(m3, m2)
+m4 <- glmer(DIN.area ~ 1 + (1| label),  family = Gamma(link="log"), data = din)
+anova(m3, m4)
+summary(m4)
+r.squaredGLMM(m4)
+```
+nothing matters
+
+plot DIN.area just to look at it
+```{r}
+plot(allEffects(m1))
+r <- Effect(c("depth1", "treatment"), m1, xlevels=500)
+r=as.data.frame(r)
+
+ggplot() +
+geom_point(data = din, aes(x = DIN.area, y = depth1, group = treatment, color = treatment)) +
+  theme_bw(base_size = 17)+
+theme(aspect.ratio=1, panel.grid.minor = element_blank()) +  
+ylab("Depth (cm)") +
+xlab(expression("DIN (mg "*paste(m^{2}* ")"))) +
+scale_y_reverse() +
+  scale_color_manual(values=c(c("#49997c", "#ae3918", "#d19c2f" ))) +
+geom_line(data=r, aes(y = depth1, x = exp(fit), group = treatment),linetype="solid", size=1)+
+geom_ribbon(data=r, aes(y = depth1, xmax = exp(upper), xmin=exp(lower), group = treatment), alpha=0.2) +
+  facet_wrap(~treatment)+ 
+  labs(color = "Disturbance")
+```
+
+```{r}
+din[din == 0] <- NA
+
+anr <- glmer(N4.N3 ~ treatment * depth1 + (1| label),  family = Gamma(link="log"), data = din)
+anr1 <- glmer(N4.N3 ~ treatment + depth1 + (1| label),  family = Gamma(link="log"), data = din)
+anova(anr, anr1)
+anr2 <- glmer(N4.N3 ~ treatment + (1| label),  family = Gamma(link="log"), data = din)
+anova(anr2, anr1)
+anr3 <- glmer(N4.N3 ~ 1 + (1| label),  family = Gamma(link="log"), data = din)
+anova(anr2, anr3)
+
+plot(anr2)
+r.squaredGLMM(anr2)
+summary(anr2)
+```
+
+outliers
+```{r}
+n4n3.lm <-lm(N4.N3 ~ treatment, na.action=na.exclude, data = din)
+plot(n4n3.lm)
+```
+
+```{r}
+emmeans(anr2, "treatment")
+emmeans(anr2, pairwise ~ treatment)
+pair =  emmeans(anr2, "treatment")
+plot(pair, comparisons = TRUE)
+
+exp(1.88)
+exp(-0.06)
+exp(0.28)
+```
+
+```{r}
+plot(allEffects(anr2))
+r <- Effect(c("treatment"), anr2, xlevels=500)
+r=as.data.frame(r)
+
+ggplot(r, aes(x=treatment, y=fit, color = treatment, fill = treatment)) + 
+  geom_point(size = 3) + 
+  geom_errorbar(aes(ymin=fit-se, ymax=fit+se), size = 1, width=0.25) + 
+ geom_jitter(data=din, aes(x = treatment, y= N4.N3, fill = treatment, color = treatment), alpha = 0.3, width = 0.1) +
+  theme_bw(base_size = 17)+
+  theme(aspect.ratio=1, panel.grid.minor = element_blank(), legend.position="none") +
+  xlab("Disturbance catagory") +
+  ylab(expression("N"*H^{4}* ":N"*O^{3}*"")) +
+  scale_color_manual(values=c(c("#49997c", "#ae3918", "#d19c2f" )))
+```
+
+
+DIN with subsidence
+```{r}
+din.sub = read.csv("sib_din_sub.csv")
+
+din.sub$treatment = factor(din.sub$treatment, levels = c("nothing", "fire", "sub"), labels= c("Unburned", "Burned", "Subsided"))
+
+din.sub$treatment = as.factor(din.sub$treatment)
+din.sub$depth1 = as.numeric(din.sub$depth1)
+
+tot.din = din.sub %>%
+  na.omit() %>%
+  group_by(treatment, plot) %>% 
+  mutate(din.cum = cumsum(DIN.area)) %>%
+  mutate(amm.cum = cumsum(NH4.a)) %>%
+  mutate(nit.cum = cumsum(NO3.a)) %>%
+  mutate(ntot.cum = cumsum(NO3.a))
+
+tot.din1 <- tot.din[c(8, 16, 23, 32, 44, 57, 71), ]
+```
+
+DIN
+```{r}
+din.m <-lmer(din.cum ~ treatment + (1| plot), na.action=na.exclude, data = tot.din1)
+din.m1 <-lmer(din.cum ~ 1 + (1| plot), na.action=na.exclude, data = tot.din1)
+anova(din.m, din.m1)
+plot(din.m)
+summary(din.m)
+r.squaredGLMM(din.m)
+```
+
+```{r}
+emmeans(din.m, "treatment")
+emmeans(din.m, pairwise ~ treatment)
+pair =  emmeans(din.m, "treatment")
+plot(pair, comparisons = TRUE)
+```
+
+plot model with raw jitter
+```{r}
+plot(allEffects(din.m))
+ef.cdin <- Effect(c("treatment"), din.m, xlevels=500)
+ef.cdin=as.data.frame(ef.cdin)
+
+#home made box plot
+ggplot(ef.cdin, aes(x=treatment, y=fit, color = treatment, fill = treatment)) + 
+  geom_point(size = 3) + 
+  geom_errorbar(aes(ymin=fit-se, ymax=fit+se), size = 1, width=0.25) + 
+ geom_jitter(data=tot.din1, aes(x = treatment, y= din.cum, fill = treatment, color = treatment), alpha = 0.3, width = 0.1) +
+  theme_bw(base_size = 17)+
+  theme(aspect.ratio=1, panel.grid.minor = element_blank(), legend.position="none") +
+  xlab("Disturbance catagory") +
+ ylab(expression("Total DIN (mg "*paste(m^{2}* ")"))) +
+  scale_color_manual(values=c(c("#49997c", "#ae3918", "#d19c2f" )))
+```
+
+NH4 ammonium
+```{r}
+am.m <-lmer(amm.cum ~ treatment + (1| plot), na.action=na.exclude, data = tot.din1)
+am.m1 <-lmer(amm.cum ~ 1 + (1| plot), na.action=na.exclude, data = tot.din1)
+anova(am.m, am.m1)
+
+plot(am.m)
+summary(am.m)
+r.squaredGLMM(am.m)
+
+```
+
+```{r}
+emmeans(am.m, "treatment")
+emmeans(am.m, pairwise ~ treatment)
+pair =  emmeans(am.m, "treatment")
+plot(pair, comparisons = TRUE)
+```
+same amount of ammonium across treatments
+
+NO3
+```{r}
+nit.m <-lmer(nit.cum ~ treatment + (1| plot), na.action=na.exclude, data = tot.din1)
+nit.m1 <-lmer(nit.cum ~ 1 + (1| plot), na.action=na.exclude, data = tot.din1)
+anova(nit.m, nit.m1)
+
+plot(nit.m1)
+summary(nit.m1)
+```
+nitrate same across treatments
+
+```{r}
+emmeans(am.m, "treatment")
+emmeans(am.m, pairwise ~ treatment)
+pair =  emmeans(am.m, "treatment")
+plot(pair, comparisons = TRUE)
+```
+
+nitrate ratio
+```{r}
+nrat <-lmer(ntot.cum ~ treatment + (1| plot), na.action=na.exclude, data = tot.din1)
+nrat1 <-lmer(ntot.cum ~ 1 + (1| plot), na.action=na.exclude, data = tot.din1)
+anova(nrat, nrat1)
+
+plot(nrat)
+summary(nit.m1)
+```
+
